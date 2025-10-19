@@ -14,12 +14,18 @@ with st.sidebar:
 
 # Format market cap and enterprise value into something readable
 def format_value(value):
-    suffixes = ["", "K", "M", "B", "T"]
-    suffix_index = 0
-    while value >= 1000 and suffix_index < len(suffixes) - 1:
-        value /= 1000
-        suffix_index += 1
-    return f"${value:.1f}{suffixes[suffix_index]}"
+    try:
+        if value is None:
+            return "N/A"
+        value = float(value)
+        suffixes = ["", "K", "M", "B", "T"]
+        suffix_index = 0
+        while value >= 1000 and suffix_index < len(suffixes) - 1:
+            value /= 1000
+            suffix_index += 1
+        return f"${value:.1f}{suffixes[suffix_index]}"
+    except Exception:
+        return "N/A"
 
 def safe_format(value, fmt="{:.2f}", fallback="N/A"):
     try:
@@ -61,75 +67,78 @@ if submit:
                     "5Y": ("5y", "3mo"),
                 }
                 selected_period, interval = period_map.get(period, ("1mo", "1d"))
-# --- HAKEE DATAN JA PIIRTÄÄ: HINTAVIIVA + MEAN + ±1/±2/±3 σ -TASOT ---
 
-history = stock.history(period=selected_period, interval=interval)
+                # --- HAKEE DATAN JA PIIRTÄÄ: HINTAVIIVA + MEAN + ±1/±2/±3 σ -TASOT ---
+                history = stock.history(period=selected_period, interval=interval)
 
-# Siivotaan sarja
-series = history["Close"].dropna()
-if series.empty:
-    st.warning("Ei hintadataa tälle yhdistelmälle (period/interval).")
-else:
-    # DataFrame Altairia varten
-    price_df = series.reset_index()
-    # Varmistetaan sarakenimet
-    price_df.columns = ["Date", "Close"]
+                series = history["Close"].dropna()
+                if series.empty:
+                    st.warning("No price data for this period/interval.")
+                else:
+                    price_df = series.reset_index()
+                    price_df.columns = ["Date", "Close"]
 
-    # Tilastot
-    mean = float(series.mean())
-    std = float(series.std(ddof=1)) if len(series) > 1 else 0.0
+                    mean = float(series.mean())
+                    std = float(series.std(ddof=1)) if len(series) > 1 else 0.0
 
-    # Rakennetaan piirtotasot
-    bands = [("Mean", mean)]
-    if std > 0.0:
-        bands += [
-            ("+1σ", mean + std), ("-1σ", mean - std),
-            ("+2σ", mean + 2*std), ("-2σ", mean - 2*std),
-            ("+3σ", mean + 3*std), ("-3σ", mean - 3*std),
-        ]
+                    # Rakennetaan tasot
+                    bands = [("Mean", mean)]
+                    if std > 0.0:
+                        bands += [
+                            ("+1σ", mean + std), ("-1σ", mean - std),
+                            ("+2σ", mean + 2*std), ("-2σ", mean - 2*std),
+                            ("+3σ", mean + 3*std), ("-3σ", mean - 3*std),
+                        ]
 
-    # Hintaviiva
-    price_line = (
-        alt.Chart(price_df)
-        .mark_line()
-        .encode(
-            x=alt.X("Date:T", title="Päivä"),
-            y=alt.Y("Close:Q", title="Hinta"),
-            tooltip=[alt.Tooltip("Date:T", title="Päivä"),
-                     alt.Tooltip("Close:Q", title="Close", format=",.2f")]
-        )
-    )
+                    # Hintaviiva
+                    price_line = (
+                        alt.Chart(price_df)
+                        .mark_line()
+                        .encode(
+                            x=alt.X("Date:T", title="Date"),
+                            y=alt.Y("Close:Q", title="Price"),
+                            tooltip=[
+                                alt.Tooltip("Date:T", title="Date"),
+                                alt.Tooltip("Close:Q", title="Close", format=",.2f"),
+                            ],
+                        )
+                    )
 
-    # Sääntöviivat (μ ja ±σ:t)
-    rules_df = pd.DataFrame({"y": [v for _, v in bands],
-                             "label": [lbl for lbl, _ in bands]})
-    rules = (
-        alt.Chart(rules_df)
-        .mark_rule(strokeDash=[6, 6])
-        .encode(
-            y="y:Q",
-            color=alt.Color("label:N", title="Tasot",
-                            scale=alt.Scale(scheme="category10")),
-            tooltip=[alt.Tooltip("label:N", title="Taso"),
-                     alt.Tooltip("y:Q", title="Arvo", format=",.2f")]
-        )
-    )
+                    # Sääntöviivat (μ ja ±σ:t)
+                    rules_df = pd.DataFrame(
+                        {"y": [v for _, v in bands], "label": [lbl for lbl, _ in bands]}
+                    )
+                    rules = (
+                        alt.Chart(rules_df)
+                        .mark_rule(strokeDash=[6, 6])
+                        .encode(
+                            y="y:Q",
+                            color=alt.Color(
+                                "label:N",
+                                title="Levels",
+                                scale=alt.Scale(scheme="category10"),
+                            ),
+                            tooltip=[
+                                alt.Tooltip("label:N", title="Level"),
+                                alt.Tooltip("y:Q", title="Value", format=",.2f"),
+                            ],
+                        )
+                    )
 
-    chart = (price_line + rules).properties(height=320)
-    st.altair_chart(chart, use_container_width=True)
+                    chart = (price_line + rules).properties(height=320)
+                    st.altair_chart(chart, use_container_width=True)
 
-    # Näytetään arvot myös taulukkona
-    def _fmt(v): return safe_format(v, fmt="${:,.2f}")
-    stats_rows = [("Keskiarvo (μ)", _fmt(mean))]
-    if std > 0.0:
-        stats_rows += [
-            ("+1σ", _fmt(mean + std)),  ("-1σ", _fmt(mean - std)),
-            ("+2σ", _fmt(mean + 2*std)),("-2σ", _fmt(mean - 2*std)),
-            ("+3σ", _fmt(mean + 3*std)),("-3σ", _fmt(mean - 3*std)),
-        ]
-    st.dataframe(pd.DataFrame(stats_rows, columns=["Taso", "Arvo"]),
-                 hide_index=True, width=420)
-
+                    # Näytä arvot taulukkona
+                    def _fmt(v): return safe_format(v, fmt="${:,.2f}")
+                    stats_rows = [("Mean (μ)", _fmt(mean))]
+                    if std > 0.0:
+                        stats_rows += [
+                            ("+1σ", _fmt(mean + std)),  ("-1σ", _fmt(mean - std)),
+                            ("+2σ", _fmt(mean + 2*std)),("-2σ", _fmt(mean - 2*std)),
+                            ("+3σ", _fmt(mean + 3*std)),("-3σ", _fmt(mean - 3*std)),
+                        ]
+                    st.dataframe(pd.DataFrame(stats_rows, columns=["Level", "Value"]),
+                                 hide_index=True, width=420)
 
                 col1, col2, col3 = st.columns(3)
 
@@ -140,13 +149,13 @@ else:
                     ("Sector", info.get('sector', 'N/A')),
                     ("Industry", info.get('industry', 'N/A')),
                     ("Market Cap", format_value(info.get('marketCap'))),
-                    ("Enterprise Value", format_value( info.get('enterpriseValue'))),
+                    ("Enterprise Value", format_value(info.get('enterpriseValue'))),
                     ("Employees", info.get('fullTimeEmployees', 'N/A'))
                 ]
-                
+
                 df = pd.DataFrame(stock_info[1:], columns=stock_info[0]).astype(str)
                 col1.dataframe(df, width=400, hide_index=True)
-                
+
                 # Display price information as a dataframe
                 price_info = [
                     ("Price Info", "Value"),
@@ -157,7 +166,7 @@ else:
                     ("52 Week High", safe_format(info.get('fiftyTwoWeekHigh'), fmt="${:.2f}")),
                     ("52 Week Low", safe_format(info.get('fiftyTwoWeekLow'), fmt="${:.2f}"))
                 ]
-                
+
                 df = pd.DataFrame(price_info[1:], columns=price_info[0]).astype(str)
                 col2.dataframe(df, width=400, hide_index=True)
 
@@ -169,16 +178,16 @@ else:
                     ("PEG Ratio", safe_format(info.get('pegRatio'))),
                     ("Div Rate (FWD)", safe_format(info.get('dividendRate'), fmt="${:.2f}")),
                     ("Div Yield (FWD)", safe_format(info.get('dividendYield'), fmt="{:.2f}%") if info.get('dividendYield') else 'N/A'),
-                    ("Recommendation", info.get('recommendationKey', 'N/A').capitalize())
+                    ("Recommendation", info.get('recommendationKey', 'N/A').capitalize() if isinstance(info.get('recommendationKey'), str) else 'N/A')
                 ]
-                
+
                 df = pd.DataFrame(biz_metrics[1:], columns=biz_metrics[0]).astype(str)
                 col3.dataframe(df, width=400, hide_index=True)
 
                 # Display earnings moves for last 12 quarters
                 earnings = stock.get_earnings_dates(limit=12)
                 history = stock.history(period="3y")
-                
+
                 results = []
                 for idx, row in earnings.iterrows():
                     earnings_date = pd.to_datetime(idx).date()
