@@ -61,10 +61,75 @@ if submit:
                     "5Y": ("5y", "3mo"),
                 }
                 selected_period, interval = period_map.get(period, ("1mo", "1d"))
-                history = stock.history(period=selected_period, interval=interval)
-                
-                chart_data = pd.DataFrame(history["Close"])
-                st.line_chart(chart_data)
+# --- HAKEE DATAN JA PIIRTÄÄ: HINTAVIIVA + MEAN + ±1/±2/±3 σ -TASOT ---
+
+history = stock.history(period=selected_period, interval=interval)
+
+# Siivotaan sarja
+series = history["Close"].dropna()
+if series.empty:
+    st.warning("Ei hintadataa tälle yhdistelmälle (period/interval).")
+else:
+    # DataFrame Altairia varten
+    price_df = series.reset_index()
+    # Varmistetaan sarakenimet
+    price_df.columns = ["Date", "Close"]
+
+    # Tilastot
+    mean = float(series.mean())
+    std = float(series.std(ddof=1)) if len(series) > 1 else 0.0
+
+    # Rakennetaan piirtotasot
+    bands = [("Mean", mean)]
+    if std > 0.0:
+        bands += [
+            ("+1σ", mean + std), ("-1σ", mean - std),
+            ("+2σ", mean + 2*std), ("-2σ", mean - 2*std),
+            ("+3σ", mean + 3*std), ("-3σ", mean - 3*std),
+        ]
+
+    # Hintaviiva
+    price_line = (
+        alt.Chart(price_df)
+        .mark_line()
+        .encode(
+            x=alt.X("Date:T", title="Päivä"),
+            y=alt.Y("Close:Q", title="Hinta"),
+            tooltip=[alt.Tooltip("Date:T", title="Päivä"),
+                     alt.Tooltip("Close:Q", title="Close", format=",.2f")]
+        )
+    )
+
+    # Sääntöviivat (μ ja ±σ:t)
+    rules_df = pd.DataFrame({"y": [v for _, v in bands],
+                             "label": [lbl for lbl, _ in bands]})
+    rules = (
+        alt.Chart(rules_df)
+        .mark_rule(strokeDash=[6, 6])
+        .encode(
+            y="y:Q",
+            color=alt.Color("label:N", title="Tasot",
+                            scale=alt.Scale(scheme="category10")),
+            tooltip=[alt.Tooltip("label:N", title="Taso"),
+                     alt.Tooltip("y:Q", title="Arvo", format=",.2f")]
+        )
+    )
+
+    chart = (price_line + rules).properties(height=320)
+    st.altair_chart(chart, use_container_width=True)
+
+    # Näytetään arvot myös taulukkona
+    def _fmt(v): return safe_format(v, fmt="${:,.2f}")
+    stats_rows = [("Keskiarvo (μ)", _fmt(mean))]
+    if std > 0.0:
+        stats_rows += [
+            ("+1σ", _fmt(mean + std)),  ("-1σ", _fmt(mean - std)),
+            ("+2σ", _fmt(mean + 2*std)),("-2σ", _fmt(mean - 2*std)),
+            ("+3σ", _fmt(mean + 3*std)),("-3σ", _fmt(mean - 3*std)),
+        ]
+    st.dataframe(pd.DataFrame(stats_rows, columns=["Taso", "Arvo"]),
+                 hide_index=True, width=420)
+
 
                 col1, col2, col3 = st.columns(3)
 
