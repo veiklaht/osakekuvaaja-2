@@ -96,7 +96,7 @@ if submit:
                         .mark_line()
                         .encode(
                             x=alt.X("Date:T", title="Date"),
-                            y=alt.Y("Close:Q", title="Price"),
+                            y=alt.Y("Close:Q", title="Price", scale=alt.Scale(zero=False)),
                             tooltip=[
                                 alt.Tooltip("Date:T", title="Date"),
                                 alt.Tooltip("Close:Q", title="Close", format=",.2f"),
