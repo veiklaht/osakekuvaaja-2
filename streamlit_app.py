@@ -65,6 +65,9 @@ if submit:
                     "YTD": ("ytd", "1mo"),
                     "1Y": ("1y", "1mo"),
                     "5Y": ("5y", "3mo"),
+                    "10Y": ("10y", "3mo"),
+                    "15Y": ("15y", "3mo"),
+                    "20Y": ("20y", "3mo"),
                 }
                 selected_period, interval = period_map.get(period, ("1mo", "1d"))
 
